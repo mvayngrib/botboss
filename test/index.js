@@ -2,14 +2,16 @@
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'test'
 
+const testco = require('tape-co').default
+const test = require('tape')
+const extend = require('xtend/mutable')
 const memdown = require('memdown')
-const test = require('tape-co').default
 const changesFeed = require('changes-feed')
 const tradle = require('@tradle/engine')
 const { TYPE, MESSAGE_TYPE } = tradle.constants
 const Runner = require('../')
 const builder = require('../lib/builders')
-global.Promise = require('../lib/promise')
+const { Promise, co } = require('../lib/utils')
 
 let dbCounter = 0
 const createDB = function () {
@@ -20,11 +22,14 @@ const createLog = function () {
   return changesFeed(createDB())
 }
 
-test('blah', function* () {
+test('blah', function (t) {
   const objects = {
     a: {
       [TYPE]: MESSAGE_TYPE,
-      message: 'ho'
+      object: {
+        [TYPE]: 'hey',
+        message: 'ho'
+      }
     }
   }
 
@@ -44,6 +49,16 @@ test('blah', function* () {
     }
   }
 
+  const expectedSharedData = {
+    blah: 'blah'
+  }
+
+  const expectedUserData = {
+    something: {
+      some: 'data'
+    }
+  }
+
   const log = createLog()
   log.append({
     topic: 'newobj',
@@ -54,9 +69,21 @@ test('blah', function* () {
 
   const db = createDB()
   const b = new builder.Bot()
-  b.run = function (session) {
-    console.log('HA!', session)
-  }
+  b.use(function (session) {
+    return new Promise(resolve => {
+      session.userData.something = {
+        some: 'data'
+      }
+
+      setTimeout(resolve, 100)
+    })
+  })
+
+  b.type('hey', function (session) {
+    extend(session.sharedData, expectedSharedData)
+  })
+
+  b.type('hi', t.fail)
 
   const r = new Runner({
     node,
@@ -64,6 +91,37 @@ test('blah', function* () {
     log: log,
     bot: b
   })
+
+  r.on('handled', co(function* (session) {
+    // make sure throwing away the db
+    // doesn't result in re-handling of messages
+    const s = new Runner({
+      node: node,
+      db: createDB(),
+      log: log,
+      bot: b
+    })
+
+    s.on('handled', t.fail)
+
+    // db.createReadStream().on('data', console.log)
+    try {
+      const bobData = yield r.userData('bob')
+      t.same(bobData, expectedUserData)
+    } catch (err) {
+      t.error(err)
+    }
+
+    try {
+      const sharedData = yield r.sharedData('blah')
+      t.same(sharedData, expectedSharedData.blah)
+    } catch (err) {
+      t.error(err)
+    }
+
+    r.stop()
+    t.end()
+  }))
 })
 
 function rethrow (err) {
