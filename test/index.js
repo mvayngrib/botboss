@@ -8,7 +8,8 @@ const extend = require('xtend/mutable')
 const memdown = require('memdown')
 const changesFeed = require('changes-feed')
 const tradle = require('@tradle/engine')
-const { TYPE, MESSAGE_TYPE } = tradle.constants
+const utils = tradle.utils
+const { TYPE, MESSAGE_TYPE, SIG } = tradle.constants
 const Runner = require('../')
 const builder = require('../lib/builders')
 const { Promise, co } = require('../lib/utils')
@@ -16,7 +17,7 @@ const collect = Promise.promisify(require('stream-collector'))
 
 let dbCounter = 0
 const createDB = function () {
-  return tradle.utils.levelup('' + (dbCounter++), { db: memdown })
+  return utils.levelup('' + (dbCounter++), { db: memdown })
 }
 
 const createLog = function () {
@@ -24,14 +25,18 @@ const createLog = function () {
 }
 
 test('basic', function (t) {
+  const payload = {
+    [TYPE]: 'hey',
+    [SIG]: 'asdf',
+    message: 'ho'
+  }
+
   const objects = {
     a: {
       [TYPE]: MESSAGE_TYPE,
-      object: {
-        [TYPE]: 'hey',
-        message: 'ho'
-      }
-    }
+      object: payload
+    },
+    [utils.hexLink(payload)]: payload
   }
 
   const toSend = {
@@ -47,6 +52,10 @@ test('basic', function (t) {
     permalink: 'joe',
     objects: {
       get: function (link) {
+        if (typeof link === 'object') {
+          link = link.link
+        }
+
         if (link in objects) {
           return Promise.resolve(objects[link])
         }
@@ -87,8 +96,8 @@ test('basic', function (t) {
 
   b.use(function (session) {
     t.same(session.message, {
-      author: 'bob',
-      link: 'a',
+      user: 'bob',
+      type: objects.a.object[TYPE],
       envelope: objects.a,
       payload: objects.a.object
     })
@@ -118,7 +127,7 @@ test('basic', function (t) {
 
   r.on('handled', co(function* (session) {
     t.equal(sent.length, 1)
-    t.equal(sent[0].to, toSend.to)
+    t.equal(sent[0].to.permalink, toSend.to)
     t.same(sent[0].object, toSend.message)
 
     // make sure throwing away the db
