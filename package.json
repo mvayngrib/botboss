@@ -1,0 +1,18 @@
+{
+  "name": "@tradle/botboss",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/tradle/bottle",
+  "author": "Mark Vayngrib <mark@tradle.io> (http://github.com/mvayngrib)",
+  "license": "MIT",
+  "dependencies": {
+    "@tradle/engine": "^3.6.0",
+    "bluebird": "^3.4.6",
+    "deep-extend": "^0.4.1",
+    "feed-indexer": "^1.2.1",
+    "mutexify": "^1.1.0",
+    "pump": "^1.0.1",
+    "subleveldown": "^2.1.0",
+    "through2": "^2.0.3"
+  }
+}
