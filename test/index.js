@@ -12,6 +12,7 @@ const { TYPE, MESSAGE_TYPE } = tradle.constants
 const Runner = require('../')
 const builder = require('../lib/builders')
 const { Promise, co } = require('../lib/utils')
+const collect = Promise.promisify(require('stream-collector'))
 
 let dbCounter = 0
 const createDB = function () {
@@ -22,7 +23,7 @@ const createLog = function () {
   return changesFeed(createDB())
 }
 
-test('blah', function (t) {
+test('basic', function (t) {
   const objects = {
     a: {
       [TYPE]: MESSAGE_TYPE,
@@ -33,7 +34,15 @@ test('blah', function (t) {
     }
   }
 
+  const toSend = {
+    to: 'bob',
+    message: {
+      [TYPE]: 'blah',
+    }
+  }
+
   // TODO: take this out to test helpers
+  const sent = []
   const node = {
     permalink: 'joe',
     objects: {
@@ -46,6 +55,10 @@ test('blah', function (t) {
         err.notFound = true
         return Promise.reject(err)
       }
+    },
+    send: function (data) {
+      sent.push(data)
+      return Promise.resolve()
     }
   }
 
@@ -69,7 +82,17 @@ test('blah', function (t) {
 
   const db = createDB()
   const b = new builder.Bot()
+
+  // HANDLERS
+
   b.use(function (session) {
+    t.same(session.message, {
+      author: 'bob',
+      link: 'a',
+      envelope: objects.a,
+      payload: objects.a.object
+    })
+
     return new Promise(resolve => {
       session.userData.something = {
         some: 'data'
@@ -81,6 +104,7 @@ test('blah', function (t) {
 
   b.type('hey', function (session) {
     extend(session.sharedData, expectedSharedData)
+    session.send(toSend)
   })
 
   b.type('hi', t.fail)
@@ -93,6 +117,10 @@ test('blah', function (t) {
   })
 
   r.on('handled', co(function* (session) {
+    t.equal(sent.length, 1)
+    t.equal(sent[0].to, toSend.to)
+    t.same(sent[0].object, toSend.message)
+
     // make sure throwing away the db
     // doesn't result in re-handling of messages
     const s = new Runner({
@@ -119,7 +147,14 @@ test('blah', function (t) {
       t.error(err)
     }
 
-    r.stop()
+    try {
+      const sessionData = yield collect(r.sessionDataDB.createReadStream())
+      t.equal(sessionData.length, 0)
+    } catch (err) {
+      t.error(err)
+    }
+
+    yield r.stop()
     t.end()
   }))
 })

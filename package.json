@@ -13,6 +13,7 @@
     "feed-indexer": "^1.2.1",
     "lexicographic-integer": "^1.1.0",
     "mutexify": "^1.1.0",
+    "object.omit": "^2.0.1",
     "pump": "^1.0.1",
     "subleveldown": "^2.1.0",
     "through2": "^2.0.3",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "changes-feed": "mvayngrib/changes-feed",
     "memdown": "^1.2.4",
+    "stream-collector": "^1.0.1",
     "tape-co": "^1.0.1"
   },
   "scripts": {
