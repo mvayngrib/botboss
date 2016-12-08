@@ -86,7 +86,13 @@ test('basic', function (t) {
     topic: 'newobj',
     author: 'bob',
     link: 'a',
-    type: objects.a[TYPE]
+    permalink: 'a',
+    type: objects.a[TYPE],
+    objectinfo: {
+      link: 'b',
+      permalink: 'b',
+      author: 'bob'
+    }
   }, rethrow)
 
   const db = createDB()
@@ -99,7 +105,20 @@ test('basic', function (t) {
       user: 'bob',
       type: objects.a.object[TYPE],
       envelope: objects.a,
-      payload: objects.a.object
+      payload: objects.a.object,
+      metadata: {
+        payload: {
+          author: 'bob',
+          link: 'b',
+          permalink: 'b',
+          type: objects.a.object[TYPE]
+        },
+        envelope: {
+          author: 'bob',
+          link: 'a',
+          permalink: 'a'
+        }
+      }
     })
 
     return new Promise(resolve => {
@@ -157,7 +176,7 @@ test('basic', function (t) {
     }
 
     try {
-      const sessionData = yield collect(r.sessionDataDB.createReadStream())
+      const sessionData = yield collect(r.dbs.sessionData.createReadStream())
       t.equal(sessionData.length, 0)
     } catch (err) {
       t.error(err)

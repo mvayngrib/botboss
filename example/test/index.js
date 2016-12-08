@@ -6,7 +6,7 @@ const { TYPE, SIG } = constants
 const { Promise, co } = require('../../lib/utils')
 const Session = require('../../lib/session')
 const createBot = require('../bot')
-const { fake } = require('./faker')
+const { fake, fakeSent, fakeFromDB } = require('./faker')
 
 test('basic', co(function* (t) {
   //const bobIdentity = ...
@@ -22,6 +22,7 @@ test('basic', co(function* (t) {
 
   const userData = {}
   const sharedData = {}
+  // console.log(fakeFromDB({ model: models['tradle.SelfIntroduction'], author: 'bob'}))
   const messages = [
     // as coming in via the log
     {
@@ -35,7 +36,8 @@ test('basic', co(function* (t) {
         profile: {
           firstName: 'bob'
         }
-      }
+      },
+      metadata: fakeMetadata('bob')
     },
     {
       type: 'tradle.ProductApplication',
@@ -45,7 +47,8 @@ test('basic', co(function* (t) {
         [TYPE]: 'tradle.ProductApplication',
         [SIG]: '...',
         product: 'tradle.CurrentAccount'
-      }
+      },
+      metadata: fakeMetadata('bob')
     },
     {
       type: 'tradle.PersonalInfo',
@@ -53,21 +56,34 @@ test('basic', co(function* (t) {
       envelope: {
         context: '58dae6529d26c1e2c1f498df591cf5004b9dc1e5d9284f714775c6483661dd37'
       },
-      payload: fake(models['tradle.PersonalInfo'])
+      payload: fake(models['tradle.PersonalInfo']),
+      metadata: fakeMetadata('bob')
     }
   ]
+
+  const received = []
+  const node = {
+    send: function (opts) {
+      received.push(opts)
+      return fakeSent(opts)
+    },
+    seal: link => {
+      console.log('SEALING', link)
+      return Promise.resolve()
+    }
+  }
 
   const [
     intro,
     apply,
     personalInfo
   ] = messages.map(message => {
-    return new Session.from({ message, userData, sharedData })
+    return new Session.from({ node, message, userData, sharedData })
   })
 
   yield bot.run(intro)
-  t.equal(intro.outbound.length, 1)
-  t.equal(intro.outbound[0].object[TYPE], 'tradle.ProductList')
+  t.equal(received.length, 1)
+  t.equal(received[0].object[TYPE], 'tradle.ProductList')
   t.same(userData, {
     user: 'bob',
     applications: [],
@@ -77,13 +93,35 @@ test('basic', co(function* (t) {
     profile: { firstName: 'bob' }
   })
 
+  received.length = 0
   yield bot.run(apply)
-  t.equal(apply.outbound.length, 1)
-  const [formReq] = apply.outbound
+  t.equal(received.length, 1)
+  const [formReq] = received
   t.equal(formReq.object[TYPE], 'tradle.FormRequest')
   t.equal(formReq.other.context, '58dae6529d26c1e2c1f498df591cf5004b9dc1e5d9284f714775c6483661dd37')
 
+  received.length = 0
   yield bot.run(personalInfo)
-  t.equal(personalInfo.outbound.length, 1)
-  t.equal(personalInfo.outbound[0].object[TYPE], 'tradle.FormRequest')
+  t.equal(received.length, 2)
+  const [verification, confirmation] = received
+  t.equal(verification.object[TYPE], 'tradle.Verification')
+  t.equal(verification.other.context, '58dae6529d26c1e2c1f498df591cf5004b9dc1e5d9284f714775c6483661dd37')
+  t.equal(confirmation.object[TYPE], 'tradle.CurrentAccountConfirmation')
+
+  t.end()
 }))
+
+function fakeMetadata (author) {
+  return {
+    envelope: {
+      author: author,
+      link: 'a',
+      permalink: 'b'
+    },
+    payload: {
+      link: 'b',
+      permalink: 'b',
+      author: author
+    }
+  }
+}

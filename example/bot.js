@@ -1,18 +1,36 @@
 
 const deepExtend = require('deep-extend')
 const extend = require('xtend/mutable')
-const Runner = require('../')
-const { builder } = Runner
 const { utils, constants } = require('@tradle/engine')
 const { TYPE } = constants
+const Runner = require('../')
+const { builder } = Runner
+const { co, pick, omit } = require('../lib/utils')
 const PRODUCT_APPLICATION = 'tradle.ProductApplication'
 const SELF_INTRODUCTION = 'tradle.SelfIntroduction'
 const IDENTITY_PUBLISH_REQUEST = 'tradle.IdentityPublishRequest'
+const IDENTITY_PUBLISHED = 'tradle.IdentityPublished'
+const IDENTITY = 'tradle.Identity'
+const VERIFICATION = 'tradle.Verification'
 const REMEDIATION = 'tradle.Remediation'
 const EMPLOYEE_ONBOARDING = 'tradle.EmployeeOnboarding'
+const NEXT_FORM_REQUEST = 'tradle.NextFormRequest'
+const DEFAULT_PROMPTS = {
+  formRequest: 'Yo! Fill out this form'
+}
 
-module.exports = function createBasebot (opts) {
-  const { models, products } = opts
+
+const getObjectID = utils.hexLink
+
+module.exports = function createBot (opts) {
+  const {
+    models,
+    products,
+    autoprompt=true,
+    autoverify=true,
+    prompts=DEFAULT_PROMPTS
+  } = opts
+
   const baseProductList = newProductList(opts)
   const bot = new builder.Bot()
 
@@ -21,57 +39,98 @@ module.exports = function createBasebot (opts) {
     deepExtend(session.userData, newCustomerState(session), session.userData)
 
     if (session.message.type === IDENTITY_PUBLISH_REQUEST) {
-      session.reply(IDENTITY_PUBLISHED)
+      if (session.published) {
+        // session.reply(utils.simpleMsg('already published', IDENTITY)
+      } else {
+        session.userData.published = true
+        session.seal(getObjectID(session.message.metadata.payload))
+        session.reply(IDENTITY_PUBLISHED)
+      }
     }
 
     const productList = personalizeProductList(baseProductList, session)
     session.reply(productList)
   })
 
+  bot.use(function (session) {
+    try {
+      session.tmp.context = session.message.envelope.context
+      session.tmp.application = deduceApplication(session)
+    } catch (err) {}
+  })
+
   bot.type(PRODUCT_APPLICATION, function (session) {
-    const { userData, sharedData, message } = session
+    const { userData, sharedData, message, tmp } = session
     const { applications, products } = userData
     const { envelope, payload } = message
-    let context = envelope.context
-    let application = context && getApplication(userData.applications, context)
-    if (application) {
-      return requestNextForm(session, existing)
+    if (tmp.application) {
+      return requestNextForm(session, tmp.application)
+    }
+
+    const probable = userData.applications.find(app => {
+      return app.type === payload.product
+    })
+
+    if (probable) {
+      tmp.application = probable
+      return requestNextForm(session, probable)
     }
 
     const product = payload.product
-    application = newApplication(message)
+    tmp.application = application = newApplication(message)
     applications.push(application)
     return requestNextForm(session, application)
   })
 
-  bot.use(function (session) {
-    const { userData, sharedData, message, type } = session
-    const model = models[message.type]
+  bot.type(NEXT_FORM_REQUEST, requestNextFormOrApprove)
+
+  bot.use(co(function* (session) {
+    const { userData, sharedData, message } = session
+    const { envelope, payload, type } = message
+    const model = models[type]
     if (model.subClassOf !== 'tradle.Form') return
 
     const { applications, products } = userData
-    const { envelope, payload } = message
-    const context = envelope.context
-    if (!context) {
-      throw new Error('form missing context')
-    }
-
-    const application = getApplication(applications, context)
+    const application = session.tmp.application
     if (!application) {
       throw new Error('application not found')
     }
 
-    // update existing form if it exists
+    // TODO: update existing form if it exists
 
     const links = utils.getLinks(payload)
-    application.forms.push(extend({
+    const formInfo = extend({
       type,
       body: payload,
       verifications: []
-    }, links))
+    }, links)
 
-    requestNextForm(session, application)
+    application.forms.push(formInfo)
+    if (autoverify) {
+      yield verify(session, formInfo)
+    }
+
+    requestNextFormOrApprove(session, application)
+  }))
+
+  bot.autoverify = (val=true) => autoverify = val
+  bot.autoverify = (val=true) => autoprompt = val
+
+  const verify = co(function* verify (session, form) {
+    const v = newVerificationFor(session.userData, form)
+    const result = yield session.reply(v, { context: session.tmp.context })
+    const link = result.metadata.payload.link
+    form.verifications.push({
+      link,
+      permalink: link,
+      body: v,
+      author: pick(session.info, ['link', 'permalink'])
+    })
   })
+
+  function getPrompt (name) {
+    return prompts[name] || DEFAULT_PROMPTS[name]
+  }
 
   function getApplication (applications, context) {
     return applications.find(application => {
@@ -79,7 +138,29 @@ module.exports = function createBasebot (opts) {
     })
   }
 
+  function deduceApplication (session) {
+    const applications = session.userData.applications
+    const context = session.message.envelope.context
+    let application
+    if (context) {
+      application = getApplication(applications, context)
+      if (!application) {
+        throw new Error('could not deduce application')
+      }
+    } else {
+      throw new Error('message missing context')
+    }
+
+    return application
+  }
+
   function requestNextForm (session, application) {
+    if (!autoprompt) return
+
+    if (!application) {
+      throw new Error('application not found')
+    }
+
     const product = models[application.type]
     const nextForm = product.forms.find(type => {
       return !application.forms.find(form => {
@@ -87,14 +168,47 @@ module.exports = function createBasebot (opts) {
       })
     })
 
+    if (!nextForm) return
+
     const formReq = new builder.Model(models['tradle.FormRequest'])
       .form(nextForm)
-      .message('Yo! Fill out this form')
+      .message(getPrompt('formRequest'))
       .welcome(true)
       .toJSON()
 
     session.reply(formReq, { context: application.permalink })
     session.end()
+    return true
+  }
+
+  function requestNextFormOrApprove (session, application) {
+    if (!requestNextForm(session, application)) {
+      approveProduct(session, application)
+    }
+  }
+
+  function approveProduct (session, application) {
+    const type = application.type
+    const productModel = models[type]
+    const myProductModel = models[type.replace('tradle.', 'tradle.My')]
+    if (!myProductModel) {
+      const congrats = {
+        [TYPE]: type + 'Confirmation',
+        message: `Congratulations! You were approved for: ${productModel.title}`,
+        forms: getFormIds(application.forms),
+        application: application.permalink
+      }
+
+      session.reply(congrats)
+      session.end()
+      return
+    }
+  }
+
+  function getFormIds (forms) {
+    return forms.map(f => {
+      `${f.type}_${f.permalink}_${f.link}`
+    })
   }
 
   function newApplication (message) {
@@ -102,7 +216,7 @@ module.exports = function createBasebot (opts) {
     const product = payload.product
     return {
       type: product,
-      permalink: utils.hexLink(payload),
+      permalink: getObjectID(payload),
       skip: [],
       forms: []
     }
@@ -167,4 +281,33 @@ function personalizeProductList (productList, session) {
     welcome: true,
     message: `[${greeting}](Click for a list of products)`,
   }, productList)
+}
+
+function getImportedVerification (userData, form) {
+  const prefilled = userData.prefilled && userData.prefilled[form.type]
+  if (prefilled && prefilled.verification && utils.formsEqual(prefilled.form, form.body)) {
+    return prefilled.verification
+  }
+}
+
+function newVerificationFor (userData, form) {
+  const verification = getImportedVerification(userData, form) || {}
+  if (verification.time) {
+    verification.backDated = verification.time
+    delete verification.time
+  }
+
+  verification.document = {
+    id: form.link,
+    title: form.body.title || form.type
+  }
+
+  const author = userData.user
+  verification.documentOwner = {
+    id: IDENTITY + '_' + author,
+    title: author
+  }
+
+  verification[TYPE] = VERIFICATION
+  return verification
 }

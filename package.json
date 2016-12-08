@@ -14,6 +14,7 @@
     "lexicographic-integer": "^1.1.0",
     "mutexify": "^1.1.0",
     "object.omit": "^2.0.1",
+    "object.pick": "^1.2.0",
     "pump": "^1.0.1",
     "subleveldown": "^2.1.0",
     "through2": "^2.0.3",
