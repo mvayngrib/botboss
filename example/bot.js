@@ -19,7 +19,6 @@ const DEFAULT_PROMPTS = {
   formRequest: 'Yo! Fill out this form'
 }
 
-
 const getObjectID = utils.hexLink
 
 module.exports = function createBot (opts) {
@@ -34,25 +33,29 @@ module.exports = function createBot (opts) {
   const baseProductList = newProductList(opts)
   const bot = new builder.Bot()
 
-  bot.types(IDENTITY_PUBLISH_REQUEST, SELF_INTRODUCTION, function (session) {
+  bot.types(IDENTITY_PUBLISH_REQUEST, SELF_INTRODUCTION, co(function* (session) {
     // update userData defaults in case newCustomerState changed
     deepExtend(session.userData, newCustomerState(session), session.userData)
 
     if (session.message.type === IDENTITY_PUBLISH_REQUEST) {
       if (session.published) {
-        // session.reply(utils.simpleMsg('already published', IDENTITY)
+        session.reply(utils.simpleMsg('already published', IDENTITY))
       } else {
         session.userData.published = true
-        session.seal(getObjectID(session.message.metadata.payload))
-        session.reply(IDENTITY_PUBLISHED)
+        const link = getObjectID(session.message.metadata.payload)
+        const result = yield session.seal(link)
+        session.reply({
+          [TYPE]: IDENTITY_PUBLISHED,
+          identity: link
+        })
       }
     }
 
     const productList = personalizeProductList(baseProductList, session)
     session.reply(productList)
-  })
+  }))
 
-  bot.use(function (session) {
+  bot.use(function selfOrient (session) {
     try {
       session.tmp.context = session.message.envelope.context
       session.tmp.application = deduceApplication(session)
@@ -84,7 +87,7 @@ module.exports = function createBot (opts) {
 
   bot.type(NEXT_FORM_REQUEST, requestNextFormOrApprove)
 
-  bot.use(co(function* (session) {
+  bot.use(co(function* handleForm (session) {
     const { userData, sharedData, message } = session
     const { envelope, payload, type } = message
     const model = models[type]
@@ -114,7 +117,7 @@ module.exports = function createBot (opts) {
   }))
 
   bot.autoverify = (val=true) => autoverify = val
-  bot.autoverify = (val=true) => autoprompt = val
+  bot.autoprompt = (val=true) => autoprompt = val
 
   const verify = co(function* verify (session, form) {
     const v = newVerificationFor(session.userData, form)
