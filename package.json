@@ -6,7 +6,7 @@
   "author": "Mark Vayngrib <mark@tradle.io> (http://github.com/mvayngrib)",
   "license": "MIT",
   "dependencies": {
-    "@tradle/engine": "^3.6.0",
+    "@tradle/engine": "latest",
     "bluebird": "^3.4.6",
     "debug": "^2.3.3",
     "deep-extend": "^0.4.1",
@@ -21,13 +21,17 @@
     "xtend": "^4.0.1"
   },
   "devDependencies": {
-    "@tradle/models": "tradle/models",
+    "@tradle/models": "^4.10.9",
+    "@tradle/test-helpers": "^1.3.0",
     "changes-feed": "mvayngrib/changes-feed",
     "memdown": "^1.2.4",
+    "nkey-bitcoin": "^1.2.0",
+    "nkey-curve25519": "^1.0.1",
+    "nkey-ecdsa": "^1.1.0",
     "stream-collector": "^1.0.1",
-    "tape-co": "^1.0.1"
+    "tape": "^4.6.3"
   },
   "scripts": {
-    "test": "node test"
+    "test": "NODE_ENV=test tap `git ls-files test/*.js example/test/*.js`"
   }
 }

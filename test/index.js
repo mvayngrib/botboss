@@ -2,7 +2,6 @@
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'test'
 
-const testco = require('tape-co').default
 const test = require('tape')
 const extend = require('xtend/mutable')
 const memdown = require('memdown')
@@ -42,7 +41,7 @@ test('basic', function (t) {
   const toSend = {
     to: 'bob',
     message: {
-      [TYPE]: 'blah',
+      [TYPE]: 'blah'
     }
   }
 
@@ -57,7 +56,13 @@ test('basic', function (t) {
         }
 
         if (link in objects) {
-          return Promise.resolve(objects[link])
+          const object = objects[link]
+          return Promise.resolve({
+            type: object[TYPE],
+            link: link,
+            permalink: link,
+            object: object
+          })
         }
 
         const err = new Error('NotFound')
@@ -67,7 +72,17 @@ test('basic', function (t) {
     },
     send: function (data) {
       sent.push(data)
-      return Promise.resolve()
+      return Promise.resolve({
+        message: { object: { object: data } },
+        object: { object: data }
+      })
+    },
+    signAndSend: function (data) {
+      sent.push(data)
+      return Promise.resolve({
+        message: { object: { object: data } },
+        object: { object: data }
+      })
     }
   }
 
@@ -101,6 +116,29 @@ test('basic', function (t) {
   // HANDLERS
 
   b.use(function (session) {
+    for (var p in session.message) {
+      t.same(session.message[p], {
+        user: 'bob',
+        type: objects.a.object[TYPE],
+        envelope: objects.a,
+        payload: objects.a.object,
+        metadata: {
+          payload: {
+            author: 'bob',
+            link: 'b',
+            permalink: 'b',
+            type: objects.a.object[TYPE]
+          },
+          envelope: {
+            author: 'bob',
+            link: 'a',
+            permalink: 'a',
+            type: MESSAGE_TYPE
+          }
+        }
+      }[p])
+    }
+
     t.same(session.message, {
       user: 'bob',
       type: objects.a.object[TYPE],
@@ -116,7 +154,8 @@ test('basic', function (t) {
         envelope: {
           author: 'bob',
           link: 'a',
-          permalink: 'a'
+          permalink: 'a',
+          type: MESSAGE_TYPE
         }
       }
     })

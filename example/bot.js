@@ -33,6 +33,16 @@ module.exports = function createBot (opts) {
   const baseProductList = newProductList(opts)
   const bot = new builder.Bot()
 
+  bot.pre(co(function* ({ node, message, sender }) {
+    switch (message.object[TYPE]) {
+    case IDENTITY_PUBLISH_REQUEST:
+    case SELF_INTRODUCTION:
+      if (message.object.identity) {
+        yield node.addContact(message.object.identity)
+      }
+    }
+  }))
+
   bot.types(IDENTITY_PUBLISH_REQUEST, SELF_INTRODUCTION, co(function* (session) {
     // update userData defaults in case newCustomerState changed
     deepExtend(session.userData, newCustomerState(session), session.userData)
@@ -101,10 +111,10 @@ module.exports = function createBot (opts) {
 
     // TODO: update existing form if it exists
 
-    const links = utils.getLinks(payload)
+    const links = utils.getLinks({ object: payload })
     const formInfo = extend({
       type,
-      body: payload,
+      object: payload,
       verifications: []
     }, links)
 
@@ -116,6 +126,21 @@ module.exports = function createBot (opts) {
     requestNextFormOrApprove(session, application)
   }))
 
+  // bot.type(PERSONAL_INFO, function (session) {
+  //   if (session.onfido) {
+  //     session.onfido.applicant = yield onfido.updateApplicant(pIinfo)
+  //   } else {
+  //     session.onfido.applicant = yield onfido.createApplicant(pIinfo)
+  //   }
+
+  //   yield session.commit()
+
+  // })
+
+  // bot.types(DRIVER_LICENSE, PASSPORT, function (session) {
+  //   session.onfido.documents.push(yield onfido.uploadDocument(pIinfo))
+  // })
+
   bot.autoverify = (val=true) => autoverify = val
   bot.autoprompt = (val=true) => autoprompt = val
 
@@ -126,7 +151,7 @@ module.exports = function createBot (opts) {
     form.verifications.push({
       link,
       permalink: link,
-      body: v,
+      object: v,
       author: pick(session.info, ['link', 'permalink'])
     })
   })
@@ -209,9 +234,7 @@ module.exports = function createBot (opts) {
   }
 
   function getFormIds (forms) {
-    return forms.map(f => {
-      `${f.type}_${f.permalink}_${f.link}`
-    })
+    return forms.map(f => `${f.type}_${f.permalink}_${f.link}`)
   }
 
   function newApplication (message) {
@@ -288,7 +311,7 @@ function personalizeProductList (productList, session) {
 
 function getImportedVerification (userData, form) {
   const prefilled = userData.prefilled && userData.prefilled[form.type]
-  if (prefilled && prefilled.verification && utils.formsEqual(prefilled.form, form.body)) {
+  if (prefilled && prefilled.verification && utils.formsEqual(prefilled.form, form.object)) {
     return prefilled.verification
   }
 }
@@ -302,7 +325,7 @@ function newVerificationFor (userData, form) {
 
   verification.document = {
     id: form.link,
-    title: form.body.title || form.type
+    title: form.object.title || form.type
   }
 
   const author = userData.user

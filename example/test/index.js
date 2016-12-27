@@ -6,7 +6,7 @@ const { TYPE, SIG } = constants
 const { Promise, co } = require('../../lib/utils')
 const Session = require('../../lib/session')
 const createBot = require('../bot')
-const { fake, fakeSent, fakeFromDB } = require('./faker')
+const { fake, fakeSigned, fakeSent, fakeFromDB } = require('./helpers/faker')
 
 test('basic', co(function* (t) {
   //const bobIdentity = ...
@@ -35,7 +35,8 @@ test('basic', co(function* (t) {
         identity: {},
         profile: {
           firstName: 'bob'
-        }
+        },
+        [SIG]: '...'
       },
       metadata: fakeMetadata('bob')
     },
@@ -56,7 +57,7 @@ test('basic', co(function* (t) {
       envelope: {
         context: '58dae6529d26c1e2c1f498df591cf5004b9dc1e5d9284f714775c6483661dd37'
       },
-      payload: fake(models['tradle.PersonalInfo']),
+      payload: fakeSigned(models['tradle.PersonalInfo']),
       metadata: fakeMetadata('bob')
     }
   ]
@@ -64,6 +65,10 @@ test('basic', co(function* (t) {
   const received = []
   const node = {
     send: function (opts) {
+      received.push(opts)
+      return fakeSent(opts)
+    },
+    signAndSend: function (opts) {
       received.push(opts)
       return fakeSent(opts)
     },
