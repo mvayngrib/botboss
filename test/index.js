@@ -11,8 +11,10 @@ const utils = tradle.utils
 const { TYPE, MESSAGE_TYPE, SIG } = tradle.constants
 const Runner = require('../')
 const builder = require('../lib/builders')
+const Session = require('../lib/session')
 const { Promise, co } = require('../lib/utils')
 const collect = Promise.promisify(require('stream-collector'))
+// const mock = require('./mock')
 
 let dbCounter = 0
 const createDB = function () {
@@ -48,7 +50,7 @@ test('basic', function (t) {
   // TODO: take this out to test helpers
   const sent = []
   const node = {
-    permalink: 'joe',
+    name: 'provider',
     objects: {
       get: function (link) {
         if (typeof link === 'object') {
@@ -171,7 +173,7 @@ test('basic', function (t) {
 
   b.type('hey', function (session) {
     extend(session.sharedData, expectedSharedData)
-    session.send(toSend)
+    return session.send(toSend)
   })
 
   b.type('hi', t.fail)
@@ -225,6 +227,108 @@ test('basic', function (t) {
     t.end()
   }))
 })
+
+test('exports', co(function* (t) {
+  const node = { name: 'provider' }
+  const expectedUserData = { monkey: 'phil' }
+  const b = new builder.Bot()
+  b.export('addMonkey', co(function* ({ user, monkey, session }) {
+    t.equal(session instanceof Session, true)
+    session.userData.monkey = monkey
+  }))
+
+  const log = createLog()
+  const r = new Runner({
+    node,
+    db: createDB(),
+    log: log,
+    bot: b
+  })
+
+  yield r.dbs.userData.put('bob', {})
+  yield b.addMonkey({ user: 'bob', monkey: 'phil' })
+
+  try {
+    const userData = yield r.userData('bob')
+    t.same(userData, expectedUserData)
+  } catch (err) {
+    t.error(err)
+  }
+
+  t.end()
+}))
+
+test('plugins', co(function* (t) {
+  let oninitialized
+  let onsent
+  const promiseInit = new Promise(resolve => oninitialized = resolve)
+  const promiseSend = new Promise(resolve => onsent = resolve)
+  const node = {
+    name: 'provider',
+    send: onsent,
+    objects: {
+      get: function (link) {
+        return Promise.resolve({
+          object: {
+            object: {}
+          }
+        })
+      }
+    }
+  }
+
+  const expectedUserData = { blah: 'blah' }
+  const b = new builder.Bot()
+  const plugin = function ({ bot, node }) {
+    node.send('blah')
+    bot.init(function ({ userData, sessionData, sharedData }) {
+      t.ok(userData && sessionData && sharedData)
+      oninitialized()
+    })
+
+    bot.use(function (session) {
+      extend(session.userData, expectedUserData)
+    })
+  }
+
+  b.install(plugin)
+
+  const log = createLog()
+  const r = new Runner({
+    node,
+    db: createDB(),
+    log: log,
+    bot: b
+  })
+
+  yield r.dbs.userData.put('bob', {})
+  log.append({
+    topic: 'newobj',
+    author: 'bob',
+    link: 'a',
+    permalink: 'a',
+    type: MESSAGE_TYPE,
+    objectinfo: {
+      link: 'b',
+      permalink: 'b',
+      author: 'bob'
+    }
+  }, rethrow)
+
+  yield promiseSend
+  yield promiseInit
+
+  r.once('handled', co(function* () {
+    try {
+      const userData = yield r.userData('bob')
+      t.same(userData, expectedUserData)
+    } catch (err) {
+      t.error(err)
+    }
+
+    t.end()
+  }))
+}))
 
 function rethrow (err) {
   if (err) throw err

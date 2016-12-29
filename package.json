@@ -25,13 +25,10 @@
     "@tradle/test-helpers": "^1.3.0",
     "changes-feed": "mvayngrib/changes-feed",
     "memdown": "^1.2.4",
-    "nkey-bitcoin": "^1.2.0",
-    "nkey-curve25519": "^1.0.1",
-    "nkey-ecdsa": "^1.1.0",
     "stream-collector": "^1.0.1",
     "tape": "^4.6.3"
   },
   "scripts": {
-    "test": "NODE_ENV=test tap `git ls-files test/*.js example/test/*.js`"
+    "test": "NODE_ENV=test node test"
   }
 }
